@@ -158,10 +158,15 @@ def inject_outbounds(upstream_json: list[dict] | dict, our_outbounds: list[dict]
         # Temporary: Always inject mockup if debug is enabled
         if settings.debug:
             config["outbounds"].append(MOCKUP_OUTBOUND)
-            logger.info("[DEBUG] Injected MOCKUP_OUTBOUND into a config object")
+            logger.info("[DEBUG] Injected MOCKUP_OUTBOUND into a config object. Current outbound tags: %s", 
+                        [o.get("tag") for o in config.get("outbounds", []) if isinstance(o, dict)])
     
     if settings.debug:
         dumped = json.dumps(upstream_json, indent=2)
-        logger.info("[DEBUG] Final JSON (first 1000 chars): %s", dumped[:1000])
+        if len(dumped) <= 4000:
+            logger.info("[DEBUG] Final JSON: %s", dumped)
+        else:
+            logger.info("[DEBUG] Final JSON (Head): %s", dumped[:2000])
+            logger.info("[DEBUG] Final JSON (Tail): %s", dumped[-2000:])
 
     return upstream_json
