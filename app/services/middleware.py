@@ -121,6 +121,17 @@ async def fetch_upstream_config(
             logger.error("Unexpected error fetching upstream %s: %s", url, exc)
             raise HTTPException(status_code=502, detail="Internal proxy error")
 
+# Mockup outbound for testing
+MOCKUP_OUTBOUND = {
+    "tag": "DEBUG-MOCKUP-PROXY",
+    "type": "shadowsocks",
+    "server": "1.2.3.4",
+    "server_port": 8388,
+    "method": "aes-256-gcm",
+    "password": "debug-password",
+    "remarks": "🛠 Middleware Test Proxy"
+}
+
 def inject_outbounds(upstream_json: list[dict], our_outbounds: list[dict]) -> list[dict]:
     """
     Merges our outbounds into the upstream config.
@@ -140,7 +151,9 @@ def inject_outbounds(upstream_json: list[dict], our_outbounds: list[dict]) -> li
         clean_ob = {k: v for k, v in ob.items() if not k.startswith("_")}
         config["outbounds"].append(clean_ob)
 
-    # Optional: If there is a balancer, we might want to add our proxies to it.
-    # But usually, just adding them to outbounds makes them visible in the list.
+    # Temporary: Always inject mockup if debug is enabled
+    if settings.debug:
+        config["outbounds"].append(MOCKUP_OUTBOUND)
+        logger.info("[DEBUG] Injected MOCKUP_OUTBOUND")
     
     return upstream_json
