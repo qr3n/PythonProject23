@@ -1,0 +1,84 @@
+x-common: &common
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+  restart: always
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100m
+      max-file: 5
+
+services:
+  vpn-sub-manager:
+    build: .
+    container_name: vpn-sub-manager
+    hostname: vpn-sub-manager
+    <<: [*common, *logging]
+    ports:
+      - "127.0.0.1:3011:8000"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://vpn:vpnpass@vpn-sub-db:5432/vpndb
+      - REDIS_URL=redis://vpn-sub-redis:6379/0
+    depends_on:
+      vpn-sub-db:
+        condition: service_healthy
+      vpn-sub-redis:
+        condition: service_healthy
+    networks:
+      - remnawave-network
+      - hazeevpn-network
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+
+  vpn-sub-db:
+    image: postgres:16-alpine
+    container_name: vpn-sub-db
+    hostname: vpn-sub-db
+    <<: [*common, *logging]
+    environment:
+      - POSTGRES_USER=vpn
+      - POSTGRES_PASSWORD=vpnpass
+      - POSTGRES_DB=vpndb
+    volumes:
+      - vpn_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vpn -d vpndb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - remnawave-network
+
+  vpn-sub-redis:
+    image: redis:7-alpine
+    container_name: vpn-sub-redis
+    hostname: vpn-sub-redis
+    <<: [*common, *logging]
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - vpn_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - remnawave-network
+
+volumes:
+  vpn_postgres_data:
+    name: vpn-sub-db-data
+  vpn_redis_data:
+    name: vpn-sub-redis-data
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true
+  hazeevpn-network:
+    name: hazeevpn-network
+    external: true

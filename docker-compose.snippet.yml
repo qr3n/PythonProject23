@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# VPN Subscription Manager (Middleware Replacement)
+# Copy this into your main docker-compose.yml or run alongside it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-vpn-common: &vpn-common
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+  restart: always
+
+x-vpn-logging: &vpn-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100m
+      max-file: 5
+
+services:
+  vpn-sub-manager:
+    build: .  # Path to the vpn-subscription-manager directory
+    container_name: vpn-sub-manager
+    hostname: vpn-sub-manager
+    <<: [*vpn-common, *vpn-logging]
+    ports:
+      - "127.0.0.1:3011:8000"
+    env_file: .env
+    environment:
+      # Internal project connections
+      - DATABASE_URL=postgresql+asyncpg://vpn:vpnpass@vpn-sub-db:5432/vpndb
+      - REDIS_URL=redis://vpn-sub-redis:6379/0
+      
+      # External connections (extracted from previous middleware)
+      - SUBSCRIPTION_PAGE_URL=http://remnawave-subscription-page:3010
+      - REMNAWAVE_DB_URL=postgresql://postgres:758610759ecccd4ff53e72ab1861d78fa5b4e58a34e415d1@remnawave-db:5432/postgres
+      - BOT_DB_URL=postgres://aerokit:aerokit@hazeevpnv4-postgres-1:5432/aerokit
+      - BASE_URL=http://sub.hazeevpn.com
+      - ADMIN_API_KEY=change-me
+    depends_on:
+      vpn-sub-db:
+        condition: service_healthy
+      vpn-sub-redis:
+        condition: service_healthy
+    networks:
+      - remnawave-network
+      - hazeevpn-network
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+
+  vpn-sub-db:
+    image: postgres:16-alpine
+    container_name: vpn-sub-db
+    hostname: vpn-sub-db
+    <<: [*vpn-common, *vpn-logging]
+    environment:
+      - POSTGRES_USER=vpn
+      - POSTGRES_PASSWORD=vpnpass
+      - POSTGRES_DB=vpndb
+    volumes:
+      - vpn-sub-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vpn -d vpndb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - remnawave-network
+
+  vpn-sub-redis:
+    image: redis:7-alpine
+    container_name: vpn-sub-redis
+    hostname: vpn-sub-redis
+    <<: [*vpn-common, *vpn-logging]
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - vpn-sub-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - remnawave-network
+
+# Ensure these networks match your existing setup
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true
+  hazeevpn-network:
+    name: hazeevpn-network
+    external: true
+
+volumes:
+  vpn-sub-db-data:
+    name: vpn-sub-db-data
+  vpn-sub-redis-data:
+    name: vpn-sub-redis-data
