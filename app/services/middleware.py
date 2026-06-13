@@ -132,28 +132,36 @@ MOCKUP_OUTBOUND = {
     "remarks": "🛠 Middleware Test Proxy"
 }
 
-def inject_outbounds(upstream_json: list[dict], our_outbounds: list[dict]) -> list[dict]:
+def inject_outbounds(upstream_json: list[dict] | dict, our_outbounds: list[dict]) -> list[dict] | dict:
     """
     Merges our outbounds into the upstream config.
-    Upstream usually returns a list with one or more config objects.
+    Handles both list of configs (standard) and single config object.
     """
-    if not upstream_json or not isinstance(upstream_json, list):
+    if not upstream_json:
         return upstream_json
 
-    # We inject into the first config object found
-    config = upstream_json[0]
-    if "outbounds" not in config:
-        config["outbounds"] = []
+    configs = upstream_json if isinstance(upstream_json, list) else [upstream_json]
     
-    # Prefix our tags to avoid collisions if not already prefixed
-    for ob in our_outbounds:
-        # Remove internal keys before injection
-        clean_ob = {k: v for k, v in ob.items() if not k.startswith("_")}
-        config["outbounds"].append(clean_ob)
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+            
+        if "outbounds" not in config:
+            config["outbounds"] = []
+        
+        # Prefix our tags to avoid collisions if not already prefixed
+        for ob in our_outbounds:
+            # Remove internal keys before injection
+            clean_ob = {k: v for k, v in ob.items() if not k.startswith("_")}
+            config["outbounds"].append(clean_ob)
 
-    # Temporary: Always inject mockup if debug is enabled
-    if settings.debug:
-        config["outbounds"].append(MOCKUP_OUTBOUND)
-        logger.info("[DEBUG] Injected MOCKUP_OUTBOUND")
+        # Temporary: Always inject mockup if debug is enabled
+        if settings.debug:
+            config["outbounds"].append(MOCKUP_OUTBOUND)
+            logger.info("[DEBUG] Injected MOCKUP_OUTBOUND into a config object")
     
+    if settings.debug:
+        dumped = json.dumps(upstream_json, indent=2)
+        logger.info("[DEBUG] Final JSON (first 1000 chars): %s", dumped[:1000])
+
     return upstream_json
