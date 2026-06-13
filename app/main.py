@@ -97,10 +97,15 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(admin_router)
+    # The client router contains the wildcard proxy route, so it MUST be included last
     app.include_router(client_router)
 
     @app.get("/health", tags=["system"])
     async def health() -> dict:
+        return {"status": "ok"}
+
+    @app.get("/_mw_health", tags=["system"])
+    async def mw_health() -> dict:
         return {"status": "ok"}
 
     return app

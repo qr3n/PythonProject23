@@ -34,5 +34,7 @@ class Settings(BaseSettings):
     # Pool health threshold
     min_health_score: float = 0.05
 
+    debug: bool = False
+
 
 settings = Settings()
