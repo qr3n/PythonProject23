@@ -65,7 +65,12 @@ async def proxy_all(
         logger.info("[PROXY] Path: %s, Token: %s", path, token)
     
     # 1. Fetch upstream config (or any resource)
-    status_code, headers, body = await fetch_upstream_config(path, str(request.url.query))
+    status_code, headers, body = await fetch_upstream_config(
+        path=path, 
+        query=str(request.url.query),
+        method=request.method,
+        headers=dict(request.headers)
+    )
     
     modified_body = body
     

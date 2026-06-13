@@ -76,21 +76,50 @@ async def resolve_bot_headers(
         logger.error("Failed to resolve bot headers for %s: %s", token, exc)
         return None
 
-async def fetch_upstream_config(path: str, query: str = "") -> tuple[int, dict, bytes]:
+async def fetch_upstream_config(
+    path: str, 
+    query: str = "", 
+    method: str = "GET", 
+    headers: dict = None
+) -> tuple[int, dict, bytes]:
     """Fetches the original config from upstream subscription page."""
     url = f"{settings.subscription_page_url}/{path}"
     if query:
         url += f"?{query}"
     
-    async with httpx.AsyncClient(timeout=settings.api_timeout_seconds) as client:
+    # Drop hop-by-hop headers before forwarding
+    _drop = {"host", "content-length", "transfer-encoding", "connection"}
+    fwd_headers = {k: v for k, v in (headers or {}).items() if k.lower() not in _drop}
+    
+    if settings.debug:
+        logger.info("[DEBUG] Fetching upstream: %s %s", method, url)
+        # logger.info("[DEBUG] Forwarding headers: %s", fwd_headers)
+
+    async with httpx.AsyncClient(
+        timeout=settings.api_timeout_seconds,
+        follow_redirects=True,
+        # Force HTTP/1.1 as some upstreams (like nodejs/subscription-page) might be picky
+        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+    ) as client:
         try:
-            resp = await client.get(url, follow_redirects=True)
-            # We don't use resp.json() directly because we might need to handle GZIP manually
-            # or preserve exact structure. But httpx handles decompression by default.
+            resp = await client.request(
+                method=method,
+                url=url,
+                headers=fwd_headers,
+            )
+            if settings.debug:
+                logger.info("[DEBUG] Upstream response: %d, Content-Type: %s", resp.status_code, resp.headers.get("content-type"))
+            
             return resp.status_code, dict(resp.headers), resp.content
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             logger.error("Failed to fetch upstream config from %s: %s", url, exc)
-            raise HTTPException(status_code=502, detail="Upstream subscription page unavailable")
+            if settings.debug:
+                import traceback
+                logger.error(traceback.format_exc())
+            raise HTTPException(status_code=502, detail=f"Upstream error: {exc}")
+        except Exception as exc:
+            logger.error("Unexpected error fetching upstream %s: %s", url, exc)
+            raise HTTPException(status_code=502, detail="Internal proxy error")
 
 def inject_outbounds(upstream_json: list[dict], our_outbounds: list[dict]) -> list[dict]:
     """
