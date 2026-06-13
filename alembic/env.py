@@ -20,6 +20,7 @@ target_metadata = Base.metadata
 def get_url() -> str:
     # Allow override via DATABASE_URL env var (used in Docker)
     url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    print(f"[ALEMBIC] Connecting to: {url.split('@')[-1] if '@' in url else url}")
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgres://"):
@@ -48,9 +49,22 @@ def do_run_migrations(connection):
 async def run_migrations_online() -> None:
     url = get_url()
     connectable = create_async_engine(url, future=True)
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
+    
+    # Retry connection for up to 30 seconds
+    last_exc = None
+    for i in range(10):
+        try:
+            async with connectable.connect() as connection:
+                await connection.run_sync(do_run_migrations)
+            await connectable.dispose()
+            return
+        except Exception as e:
+            last_exc = e
+            print(f"[ALEMBIC] Connection attempt {i+1} failed: {e}. Retrying in 3s...")
+            await asyncio.sleep(3)
+    
+    if last_exc:
+        raise last_exc
 
 
 if context.is_offline_mode():
