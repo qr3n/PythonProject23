@@ -19,7 +19,12 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     # Allow override via DATABASE_URL env var (used in Docker)
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
 
 
 def run_migrations_offline() -> None:
