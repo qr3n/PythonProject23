@@ -2,6 +2,7 @@ fastapi==0.115.5
 uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+psycopg2-binary==2.9.10
 alembic==1.14.0
 redis[asyncio]==5.2.1
 httpx==0.28.0
