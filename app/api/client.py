@@ -77,9 +77,10 @@ async def proxy_all(
     # Only try to inject outbounds if we have a token and it looks like a subscription config
     if token and status_code == 200:
         try:
-            # We check if it's a JSON array (standard Remnawave sub format)
+            # Check if it's JSON (might be GZIPed, but httpx usually handles that)
+            # However, let's be safe and try to parse it.
             stripped_body = body.strip()
-            if stripped_body.startswith(b"[") and stripped_body.endswith(b"]"):
+            if stripped_body.startswith(b"[") or stripped_body.startswith(b"{"):
                 upstream_json = json.loads(body)
                 
                 # 2. Get our custom outbounds
@@ -88,15 +89,16 @@ async def proxy_all(
                 if pool:
                     our_outbounds = select_user_outbounds(pool, token)
 
-                # 3. Inject our outbounds
-                if our_outbounds:
-                    modified_json = inject_outbounds(upstream_json, our_outbounds)
-                    modified_body = json.dumps(modified_json).encode("utf-8")
-                    if settings.debug:
-                        logger.info("[PROXY] Injected %d outbounds for %s", len(our_outbounds), token)
+                # 3. Inject our outbounds (always call to allow mockup/logic)
+                modified_json = inject_outbounds(upstream_json, our_outbounds)
+                modified_body = json.dumps(modified_json).encode("utf-8")
+                
+                if settings.debug:
+                    logger.info("[PROXY] Processed injection for %s (our_outbounds: %d)", token, len(our_outbounds))
         except Exception as exc:
             # If it's not JSON or injection fails, we just return the original body
-            logger.debug("Skipping injection for %s: %s", path, exc)
+            if settings.debug:
+                logger.error("[PROXY] Injection error for %s: %s", path, exc)
 
     # 4. Resolve bot headers (profile-title, announce)
     fwd_headers = {
