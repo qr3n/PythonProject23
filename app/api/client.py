@@ -16,6 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
+from app.config import settings
 from app.deps import DbDep, RedisDep, RwPoolDep, BotPoolDep
 from app.services.pool import get_or_build_pool, select_user_outbounds
 from app.services.middleware import (
@@ -34,12 +35,13 @@ def extract_token(path: str) -> Optional[str]:
     # Extract the first segment of the path as the potential token
     # e.g., /abc12345/something -> abc12345
     # e.g., /abc12345?query -> abc12345
-    segment = next((s for s in path.split("/") if s), None)
-    if segment:
-        # Remove query params if they were attached to the segment somehow
-        segment = segment.split("?")[0]
-        if _TOKEN_RE.match(segment):
-            return segment
+    segments = [s for s in path.split("/") if s]
+    if not segments:
+        return None
+    
+    segment = segments[0].split("?")[0]
+    if _TOKEN_RE.match(segment):
+        return segment
     return None
 
 
