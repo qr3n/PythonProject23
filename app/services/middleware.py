@@ -127,93 +127,88 @@ def _clean_config_for_reserve(config: dict, name: str):
     # 3. Routing Rules: Remove any loop-tag rules
     new_rules = []
     for r in routing.get("rules", []):
-        # If it has inboundTag loop-tag-*, we skip it
         inbound = r.get("inboundTag", [])
         if isinstance(inbound, str): inbound = [inbound]
         if any(tag.startswith("loop-tag-") for tag in inbound):
             continue
         new_rules.append(r)
-    config["routing"]["rules"] = new_rules
+    routing["rules"] = new_rules
     
     return config
+
+def _finalize_outbounds(config: dict):
+    """Ensures loopbacks and special protocols are at the end of the list."""
+    outbounds = config.get("outbounds", [])
+    proxies = []
+    others = []
+    for ob in outbounds:
+        if ob.get("protocol") in ["loopback", "freedom", "blackhole"]:
+            others.append(ob)
+        else:
+            proxies.append(ob)
+    config["outbounds"] = proxies + others
 
 def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list[dict]) -> Union[list[dict], dict]:
     if not upstream_json: return upstream_json
     
-    # Convert to list for processing
     original_configs = upstream_json if isinstance(upstream_json, list) else [upstream_json]
     if not original_configs: return upstream_json
     
     template = copy.deepcopy(original_configs[0])
     final_configs = []
-    
-    # Total outbounds we have to inject
     total_to_inject = len(our_outbounds)
     
     # --- PHASE 1: Handle the Main Config (Config 0) ---
-    # It has 4 remnawave proxies: top, fb1, fb2, fb3. Capacity left: 1.
     main_config = original_configs[0]
+    routing = main_config.get("routing", {})
     
     if total_to_inject > 0:
-        # 1. Add our first outbound
         first_ob = copy.deepcopy(our_outbounds[0])
         first_ob["tag"] = "proxy-fb4-our"
         main_config["outbounds"].append(first_ob)
         
-        # 2. Add loopback-4
         main_config["outbounds"].append({
             "tag": "loopback-4",
             "protocol": "loopback",
             "settings": {"inboundTag": "loop-tag-4"}
         })
         
-        # 3. Update proxy-fb3 routing rule to point to a new balancer instead of direct outbound
-        # Find rule for loop-tag-3
-        for rule in main_config.get("routing", {}).get("rules", []):
+        for rule in routing.get("rules", []):
             itags = rule.get("inboundTag", [])
             if isinstance(itags, str): itags = [itags]
             if "loop-tag-3" in itags:
                 rule.pop("outboundTag", None)
                 rule["balancerTag"] = "balancer-fb3"
         
-        # 4. Create balancer-fb3
-        main_config.get("routing", {}).setdefault("balancers", []).append({
+        routing.setdefault("balancers", []).append({
             "tag": "balancer-fb3",
             "selector": ["proxy-fb3"],
             "strategy": {"type": "leastPing"},
             "fallbackTag": "loopback-4"
         })
         
-        # 5. Add routing rule for loop-tag-4 -> proxy-fb4-our
-        main_config.get("routing", {}).get("rules", []).append({
+        routing.get("rules", []).append({
             "type": "field",
             "inboundTag": ["loop-tag-4"],
             "outboundTag": "proxy-fb4-our"
         })
-        
+    
+    _finalize_outbounds(main_config)
     final_configs.append(main_config)
     
     # --- PHASE 2: Handle Reserve Configs ---
-    # Each reserve config has 1 remnawave proxy (top) + up to 4 our outbounds.
-    
-    idx = 1 # Start from second outbound
+    idx = 1
     reserve_num = 1
     while idx < total_to_inject:
         res_config = _clean_config_for_reserve(copy.deepcopy(template), f"Резерв {reserve_num}")
         res_routing = res_config.get("routing", {})
         
-        # Fill up to 4 slots
-        # Chain: balancer-top -> loop-tag-1 -> balancer-custom-1 -> loop-tag-2 -> balancer-custom-2 -> loop-tag-3 -> balancer-custom-3 -> loop-tag-4 -> proxy-custom-4
-        
-        # Hook balancer-top to start our chain
         for b in res_routing.get("balancers", []):
             if b["tag"] == "balancer-top":
                 b["fallbackTag"] = "loopback-1"
         
-        # Add loopback-1
         res_config["outbounds"].append({"tag": "loopback-1", "protocol": "loopback", "settings": {"inboundTag": "loop-tag-1"}})
         
-        slots_filled = 0
         for s in range(4):
             if idx >= total_to_inject: break
             
@@ -223,14 +218,11 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
             res_config["outbounds"].append(curr_ob)
             
             is_last = (s == 3) or (idx + 1 >= total_to_inject)
-            
             if not is_last:
-                # Need another link in the chain
                 next_loop_tag = f"loop-tag-{s+2}"
                 next_loopback_tag = f"loopback-{s+2}"
                 res_config["outbounds"].append({"tag": next_loopback_tag, "protocol": "loopback", "settings": {"inboundTag": next_loop_tag}})
                 
-                # Balancer for current custom proxy
                 res_routing.setdefault("balancers", []).append({
                     "tag": f"balancer-custom-{s+1}",
                     "selector": [tag],
@@ -238,28 +230,24 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
                     "fallbackTag": next_loopback_tag
                 })
                 
-                # Rule to connect current loop-tag to this balancer
                 res_routing.setdefault("rules", []).append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "balancerTag": f"balancer-custom-{s+1}"
                 })
             else:
-                # End of chain
                 res_routing.setdefault("rules", []).append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "outboundTag": tag
                 })
-            
             idx += 1
-            slots_filled += 1
             
+        _finalize_outbounds(res_config)
         final_configs.append(res_config)
         reserve_num += 1
 
     if settings.debug:
         logger.info("[DEBUG] Pagination complete. Total configs: %d", len(final_configs))
-        # logger.info("[DEBUG] Final JSON: %s", json.dumps(final_configs, indent=2))
 
     return final_configs
