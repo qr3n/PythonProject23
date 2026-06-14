@@ -121,8 +121,9 @@ def _build_pool(subs: list[ProviderSubscription]) -> list[dict]:
 
 
 def _user_offset(token: str, pool_size: int) -> int:
-    """Deterministic offset from user token hex prefix."""
-    return int(token[:8], 16) % pool_size
+    """Deterministic offset from user token hash."""
+    digest = hashlib.md5(token.encode()).hexdigest()
+    return int(digest[:8], 16) % pool_size
 
 
 def select_user_outbounds(pool: list[dict], token: str) -> list[dict]:
