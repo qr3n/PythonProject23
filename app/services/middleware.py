@@ -170,6 +170,28 @@ def _fix_observatory(config: dict):
             proxies.append(tag)
     obs["subjectSelector"] = proxies
 
+def _prioritize_loop_rules(config: dict):
+    """Moves all rules with loop-tag-* inboundTag to the top of the rules list."""
+    routing = config.get("routing", {})
+    rules = routing.get("rules", [])
+    if not rules:
+        return
+    
+    loop_rules = []
+    other_rules = []
+    
+    for r in rules:
+        itags = r.get("inboundTag", [])
+        if isinstance(itags, str): itags = [itags]
+        
+        is_loop = any(t.startswith("loop-tag-") for t in itags)
+        if is_loop:
+            loop_rules.append(r)
+        else:
+            other_rules.append(r)
+            
+    routing["rules"] = loop_rules + other_rules
+
 def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list[dict]) -> Union[list[dict], dict]:
     if not upstream_json: return upstream_json
     
@@ -210,13 +232,14 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
             "fallbackTag": "loopback-4"
         })
         
-        # Prepend loop-tag-4 rule to the BEGINNING to avoid routing loops
-        rules.insert(0, {
+        # Add our new loop rule
+        rules.append({
             "type": "field",
             "inboundTag": ["loop-tag-4"],
             "outboundTag": "proxy-fb4-our"
         })
     
+    _prioritize_loop_rules(main_config)
     _fix_observatory(main_config)
     _finalize_outbounds(main_config)
     final_configs.append(main_config)
@@ -234,9 +257,6 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
                 b["fallbackTag"] = "loopback-1"
         
         res_config["outbounds"].append({"tag": "loopback-1", "protocol": "loopback", "settings": {"inboundTag": "loop-tag-1"}})
-        
-        # New loop-tag rules for reserve will be collected here to be prepended later
-        new_loop_rules = []
         
         for s in range(4):
             if idx >= total_to_inject: break
@@ -259,22 +279,20 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
                     "fallbackTag": next_loopback_tag
                 })
                 
-                new_loop_rules.append({
+                res_rules.append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "balancerTag": f"balancer-custom-{s+1}"
                 })
             else:
-                new_loop_rules.append({
+                res_rules.append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "outboundTag": tag
                 })
             idx += 1
             
-        # Prepend all new loop rules to the beginning of the reserve config's rules
-        res_routing["rules"] = new_loop_rules + res_rules
-            
+        _prioritize_loop_rules(res_config)
         _fix_observatory(res_config)
         _finalize_outbounds(res_config)
         final_configs.append(res_config)
