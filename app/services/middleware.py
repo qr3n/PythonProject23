@@ -21,7 +21,7 @@ def _cache_get(token: str) -> tuple[bool, Optional[tuple[str, Optional[str]]]]:
         return False, None
     value, expires_at = entry
     if time.monotonic() > expires_at:
-        _cache_get.pop(token, None)
+        _header_cache.pop(token, None)
         return False, None
     return True, value
 
