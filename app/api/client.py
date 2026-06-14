@@ -114,7 +114,12 @@ async def proxy_all(
             if b64_subtitle:
                 fwd_headers["announce"] = f"base64:{b64_subtitle}"
             if settings.debug:
-                logger.info("[PROXY] Added bot headers for %s", token)
+                logger.info("[PROXY] Added bot headers for %s: title=%s", token, b64_title[:10] + "...")
+        elif settings.debug:
+            logger.info("[PROXY] No bot headers found for %s", token)
+
+    if settings.debug:
+        logger.info("[PROXY] Sending response with headers: %s", {k: v for k, v in fwd_headers.items() if k.lower() in ["profile-title", "announce", "content-type"]})
 
     return Response(
         content=modified_body,

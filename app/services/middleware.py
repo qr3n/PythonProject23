@@ -121,16 +121,6 @@ async def fetch_upstream_config(
             logger.error("Unexpected error fetching upstream %s: %s", url, exc)
             raise HTTPException(status_code=502, detail="Internal proxy error")
 
-# Mockup outbound for testing
-MOCKUP_OUTBOUND = {
-    "tag": "DEBUG-MOCKUP-PROXY",
-    "type": "shadowsocks",
-    "server": "1.2.3.4",
-    "server_port": 8388,
-    "method": "aes-256-gcm",
-    "password": "debug-password",
-    "remarks": "🛠 Middleware Test Proxy"
-}
 
 def inject_outbounds(upstream_json: list[dict] | dict, our_outbounds: list[dict]) -> list[dict] | dict:
     """
