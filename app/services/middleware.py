@@ -148,6 +148,22 @@ def _finalize_outbounds(config: dict):
             proxies.append(ob)
     config["outbounds"] = proxies + others
 
+def _fix_observatory(config: dict):
+    """Updates subjectSelector to include all real proxies in the config."""
+    obs = config.get("burstObservatory")
+    if not obs:
+        return
+    
+    # Get all non-technical outbounds
+    proxies = []
+    for ob in config.get("outbounds", []):
+        protocol = ob.get("protocol")
+        tag = ob.get("tag")
+        if tag and protocol not in ["loopback", "freedom", "blackhole"]:
+            proxies.append(tag)
+    
+    obs["subjectSelector"] = proxies
+
 def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list[dict]) -> Union[list[dict], dict]:
     if not upstream_json: return upstream_json
     
@@ -193,6 +209,7 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
             "outboundTag": "proxy-fb4-our"
         })
     
+    _fix_observatory(main_config)
     _finalize_outbounds(main_config)
     final_configs.append(main_config)
     
@@ -243,11 +260,9 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
                 })
             idx += 1
             
+        _fix_observatory(res_config)
         _finalize_outbounds(res_config)
         final_configs.append(res_config)
         reserve_num += 1
-
-    if settings.debug:
-        logger.info("[DEBUG] Pagination complete. Total configs: %d", len(final_configs))
 
     return final_configs
