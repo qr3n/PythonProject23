@@ -2,7 +2,7 @@ import base64
 import json
 import logging
 import time
-from typing import Optional, AsyncIterator
+from typing import Optional, AsyncIterator, Union
 
 import asyncpg
 import httpx
@@ -93,12 +93,10 @@ async def fetch_upstream_config(
     
     if settings.debug:
         logger.info("[DEBUG] Fetching upstream: %s %s", method, url)
-        # logger.info("[DEBUG] Forwarding headers: %s", fwd_headers)
 
     async with httpx.AsyncClient(
         timeout=settings.api_timeout_seconds,
         follow_redirects=True,
-        # Force HTTP/1.1 as some upstreams (like nodejs/subscription-page) might be picky
         limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
     ) as client:
         try:
@@ -122,7 +120,7 @@ async def fetch_upstream_config(
             raise HTTPException(status_code=502, detail="Internal proxy error")
 
 
-def inject_outbounds(upstream_json: list[dict] | dict, our_outbounds: list[dict]) -> list[dict] | dict:
+def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list[dict]) -> Union[list[dict], dict]:
     """
     Merges our outbounds into the upstream config.
     Handles both list of configs (standard) and single config object.
@@ -145,18 +143,8 @@ def inject_outbounds(upstream_json: list[dict] | dict, our_outbounds: list[dict]
             clean_ob = {k: v for k, v in ob.items() if not k.startswith("_")}
             config["outbounds"].append(clean_ob)
 
-        # Temporary: Always inject mockup if debug is enabled
-        if settings.debug:
-            config["outbounds"].append(MOCKUP_OUTBOUND)
-            logger.info("[DEBUG] Injected MOCKUP_OUTBOUND into a config object. Current outbound tags: %s", 
-                        [o.get("tag") for o in config.get("outbounds", []) if isinstance(o, dict)])
-    
     if settings.debug:
         dumped = json.dumps(upstream_json, indent=2)
-        if len(dumped) <= 4000:
-            logger.info("[DEBUG] Final JSON: %s", dumped)
-        else:
-            logger.info("[DEBUG] Final JSON (Head): %s", dumped[:2000])
-            logger.info("[DEBUG] Final JSON (Tail): %s", dumped[-2000:])
+        logger.info("[DEBUG] Full Final JSON: %s", dumped)
 
     return upstream_json
