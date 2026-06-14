@@ -83,12 +83,15 @@ async def fetch_upstream_config(
     if query:
         url += f"?{query}"
     
+    # Drop hop-by-hop headers
     _drop = {"host", "content-length", "transfer-encoding", "connection"}
     fwd_headers = {k: v for k, v in (headers or {}).items() if k.lower() not in _drop}
     
     async with httpx.AsyncClient(
         timeout=settings.api_timeout_seconds,
-        follow_redirects=True,
+        # IMPORTANT: Do NOT follow redirects internally. 
+        # Let the browser/client handle them (for Web UI vector).
+        follow_redirects=False,
         limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
     ) as client:
         try:
@@ -97,6 +100,7 @@ async def fetch_upstream_config(
                 url=url,
                 headers=fwd_headers,
             )
+            # Response content is automatically decompressed by httpx if needed
             return resp.status_code, dict(resp.headers), resp.content
         except Exception as exc:
             logger.error("Failed to fetch upstream config from %s: %s", url, exc)
@@ -232,7 +236,6 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
             "fallbackTag": "loopback-4"
         })
         
-        # Add our new loop rule
         rules.append({
             "type": "field",
             "inboundTag": ["loop-tag-4"],
@@ -248,7 +251,7 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
     idx = 1
     reserve_num = 1
     while idx < total_to_inject:
-        res_config = _clean_config_for_reserve(copy.deepcopy(template), f"🇷🇺 Автовыбор | Резерв {reserve_num}")
+        res_config = _clean_config_for_reserve(copy.deepcopy(template), f"🇷🇺 Резерв {reserve_num}")
         res_routing = res_config.get("routing", {})
         res_rules = res_routing.get("rules", [])
         
@@ -258,6 +261,7 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
         
         res_config["outbounds"].append({"tag": "loopback-1", "protocol": "loopback", "settings": {"inboundTag": "loop-tag-1"}})
         
+        new_loop_rules = []
         for s in range(4):
             if idx >= total_to_inject: break
             
@@ -279,19 +283,20 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
                     "fallbackTag": next_loopback_tag
                 })
                 
-                res_rules.append({
+                new_loop_rules.append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "balancerTag": f"balancer-custom-{s+1}"
                 })
             else:
-                res_rules.append({
+                new_loop_rules.append({
                     "type": "field",
                     "inboundTag": [f"loop-tag-{s+1}"],
                     "outboundTag": tag
                 })
             idx += 1
             
+        res_routing["rules"] = new_loop_rules + res_rules
         _prioritize_loop_rules(res_config)
         _fix_observatory(res_config)
         _finalize_outbounds(res_config)
