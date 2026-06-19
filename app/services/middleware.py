@@ -303,7 +303,4 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
         final_configs.append(res_config)
         reserve_num += 1
 
-    for config in final_configs:
-        config["serverDescription"] = "Happ the best"
-
     return final_configs
