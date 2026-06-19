@@ -251,7 +251,7 @@ def inject_outbounds(upstream_json: Union[list[dict], dict], our_outbounds: list
     idx = 1
     reserve_num = 1
     while idx < total_to_inject:
-        res_config = _clean_config_for_reserve(copy.deepcopy(template), f"🇷🇺 Резерв {reserve_num}")
+        res_config = _clean_config_for_reserve(copy.deepcopy(template), f"🇷🇺 Автовыбор | Резервный обход #{reserve_num}")
         res_routing = res_config.get("routing", {})
         res_rules = res_routing.get("rules", [])
         
